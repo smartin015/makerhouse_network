@@ -8,12 +8,21 @@ Public scripts, services, and configuration for running a smart home K3S network
 
 Setting up a replicated pi cluster from scratch is an involved process consisting of several steps:
 
+**Setting up the cluster**
+
 * Purchasing the hardware
+* (optional) Network setup
 * Flashing the OS
 * Installing K3S and linking the nodes together
+
+**Configuring the cluster to be useful**
+
 * Configuring the load balancer and reverse proxy
 * Installing a distributed storage solution
 * Setting up SSL certificate handling and dynamic DNS
+
+**Setting up customization for IoT and other uses**
+
 * Deploying an image registry for custom container images
 * Setting up monitoring/alerting and IoT messaging
 
@@ -21,6 +30,7 @@ There are knowledge prerequisites for following this guide:
 
 * Some basic networking (e.g. how to find a remote device's IP address and SSH into it)
 * Linux command line fundamentals (navigating to files, opening and editing them, and running commands)
+* It's also useful to know what DHCP is and how to configure it and subnets in your router, for the optional network setup step.
 
 Even if you have advanced knowledge of kubernetes, be prepared to spend several hours on initial setup, plus an hour or two here and there to further refine it.
 
@@ -34,7 +44,7 @@ For the cluster network, you will need:
 
 For each node, you will need:
 
-* A raspberry pi 4 (or better)
+* A raspberry pi 4 (or better), recommended 4GB. Ideally all nodes are the same type of pi with the same hardware specs.
 * A USB C power supply (5V with at least 2A)
 * A short ethernet cable (to connect the pi to the network switch)
 
@@ -64,19 +74,28 @@ A comment at the end of that issue links to compiled binaries for armv6l:
 
 [https://github.com/aojea/kubernetes-raspi-binaries](https://github.com/aojea/kubernetes-raspi-binaries)
 
+## (Optional) Network setup
+
+This guide will assume your router is set up with a LAN subnet of `192.168.0.0/23` (i.e. allowing for IP addresses from `192.168.0.1` all the way to `192.168.1.254`).
+
+* `192.168.0.1` is the address of the router
+* IP addresses from `192.168.0.2-254` are for exposed cluster services (i.e. virtual devices)
+* IP addresses from `192.168.1.2-254` are for physical devices (the raspi's, other IoT devices, laptops, phones etc.)
+  * We recommend having a static IP address range not managed by DHCP, e.g. `192.168.1.2-30` and avoiding leasing `192.168.1.1` as it'd be confusing.
+
+## Flashing the OS
+
 ### Setup SSD boot
 
 Follow [these instructions](https://www.tomshardware.com/how-to/boot-raspberry-pi-4-usb) to install a USB bootloader onto each raspberry pi. Stop when you get to step 9 (inserting the Raspberry Pi OS) as we'll be installing Ubuntu instead.
 
-## Flashing the OS
-
 Use https://www.balena.io/etcher/ or similar to write an [Ubuntu 20.04 ARM 64-bit LTS image ](https://ubuntu.com/download/server/arm) to one of the SSDs. We'll do the majority of setup on this drive, then clone it to the other pi's (with some changes).
+
+### Enable cgroups and SSH
 
 Unplug and re-plug the SSD, then navigate to the `boot` partition and ensure there's a file labeled `ssh` there (if not, create a blank one). This allows us to remote in to the raspi's.
 
-### Enable cgroups
-
-[cgroups](https://en.wikipedia.org/wiki/Cgroups) are used by k3s to manage the resources of processes that are running on the cluster. 
+Now we will enable [cgroups](https://en.wikipedia.org/wiki/Cgroups) which are used by k3s to manage the resources of processes that are running on the cluster. 
 
 Append to /boot/firmware/cmdline.txt (see [here](https://askubuntu.com/questions/1237813/enabling-memory-cgroup-in-ubuntu-20-04)):
 
@@ -93,47 +112,60 @@ net.ifnames=0 dwc_otg.lpm_enable=0 console=serial0,115200 console=tty1 root=LABE
 
 Plug in the SSD, then plug in power to your raspberry pi. Look on your router to find the IP address of the raspberry pi, 
 
-You should be able to SSH into it 
+You should be able to SSH into it with username and password `ubuntu`. 
+
+Run `sudo shutdown now` (sudo password is `ubuntu`) and remove power once its led stops blinking. 
 
 ### Clone to other pi's
 
-Use your software of choice (e.g. `gparted` for linux) to clone the SSD onto the other blank SSDs. For each SSD, mount it and  TODO
+Remove the SSD and use your software of choice (e.g. `gparted` for linux) to clone it to the other blank SSDs. For each SSD, mount it and edit /etc/hostname to be something unique (e.g. `k3s1`, `k3s2`...)
 
-### On all devices (systemd or openrc)
+At this time, you can edit your router settings to assign static IP addresses to each raspberry pi for easier access later.
 
-#### For server nodes
+## Installing k3s and linking the nodes together
 
-Run the install script from get.k3s.io:
+We will have one server node named `k3s1` and two worker nodes (`k3s2` and `k3s3`).
 
-[https://rancher.com/docs/k3s/latest/en/installation/install-options/](https://rancher.com/docs/k3s/latest/en/installation/install-options/)
+### Set up k3s1 as master
 
-K3S version included for repeatability
+SSH into the pi, and run the install script from get.k3s.io (see [install options](https://rancher.com/docs/k3s/latest/en/installation/install-options/) for more details):
 
 ```
 export INSTALL_K3S_VERSION=v1.19.7+k3s1
 curl -sfL https://get.k3s.io | sh -s - --disable servicelb --disable local-storage
 ```
 
-ServiceLB and local storage are disabled to make way for MetalLB and Longhorn (distributed storage)
+Note:
 
-#### For worker nodes
+* We include the K3S version for repeatability.
+* ServiceLB and local storage are disabled to make way for MetalLB and Longhorn (distributed storage) configured later in this guide.
 
-To install on worker nodes and add them to the cluster, run the installation script with the K3S_URL and K3S_TOKEN environment variables. Note use of raw IP - this is to remove dependency on Pihole serving DNS requests, since that service will itself be hosted on k3s.
+Before exiting `k3s1`, run `sudo cat /var/lib/rancher/k3s/server/node-token` and copy it for the next step of linking the client nodes.
 
-Token can be recovered on the master at /var/lib/rancher/k3s/server/node-token
+### Install and link the remaining nodes
+
+To install on worker nodes and add them to the cluster, run the installation script with the K3S_URL and K3S_TOKEN environment variables. Note use of raw IP - this is more reliable than depending on the cluster DNS (Pihole) to be serving, since that service will itself be hosted on k3s.
 
 ```
-export K3S_URL=https://192.168.1.5:6443 
+export K3S_URL=https://<k3s1 IP address>:6443 
 export INSTALL_K3S_VERSION=v1.19.7+k3s1
-export K3S_TOKEN=mynodetoken
+export K3S_TOKEN=<token from k3s1>
 curl -sfL https://get.k3s.io | sh -
 ```
 
-Where K3S_URL is the URL and port of a k3s server, and K3S_TOKEN comes from `/var/lib/rancher/k3s/server/node-token` on the server node
+Where K3S_URL is the URL and port of a k3s server, and K3S_TOKEN comes from `/var/lib/rancher/k3s/server/node-token` on the server node (described in the prior step)
 
-That should be it! You can confirm the node successfully joined the cluster by running
+### Verifying
 
-`kubectl get nodes`
+That should be it! You can confirm the node successfully joined the cluster by running `kubectl get nodes`:
+
+```
+~ kubectl get nodes
+NAME   STATUS   ROLES                  AGE    VERSION
+k3s1   Ready    control-plane,master   5m   v1.21.0+k3s1
+k3s2   Ready    <none>                 1m   v1.21.0+k3s1
+k3s3   Ready    <none>                 1m   v1.21.0+k3s1
+```
 
 ## Set Up Access
 

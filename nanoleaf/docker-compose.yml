@@ -1,0 +1,13 @@
+services:
+  nanoleaf:
+    image: registry.mkr.house:443/nanoleaf
+    build: .
+    environment:
+     - "PYTHONUNBUFFERED=1"
+     - "MQTT_HOST=TODO"
+     - "NANOLEAF_HOST=TODO"
+    volumes:
+     - "./config:/root"
+    ports:
+     - "16400:8000"
+    restart: always

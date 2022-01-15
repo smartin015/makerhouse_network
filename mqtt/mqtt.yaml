@@ -1,0 +1,150 @@
+# Inspired by https://adlecluse.medium.com/run-mosquitto-mqtt-on-raspberry-pi-with-k3s-71c7456bcf8f
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: mosquitto-log-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 100Mi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: mosquitto-data-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 100Mi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: nodered-data-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 300Mi
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: mqtt
+  labels:
+    app: mqtt
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mqtt
+  template:
+    metadata:
+      labels:
+        app: mqtt
+    spec:
+      containers:
+        - name: mosquitto
+          image: eclipse-mosquitto
+          args: ["mosquitto", "-c", "/mosquitto/config/custom.conf"]
+          ports:
+          - containerPort: 1883
+          - containerPort: 9001
+          volumeMounts:
+          - name: mosquitto-log
+            mountPath: /mosquitto/log
+          - name: mosquitto-data
+            mountPath: /mosquitto/data
+          - name: mosquitto-config
+            mountPath: /mosquitto/config
+        - name: nodered
+          image: registry.mkr.house:443/nodered
+          imagePullPolicy: Always
+          securityContext:
+            runAsUser: 0 # Needs to be root in order to expose port 80
+          # NOTE: web port is specified in /data/settings.js within 
+          # the nodered-data volume. It claims to support process.env.PORT,
+          # but experimentally that doesn't work
+          ports:
+          - containerPort: 80 # Web
+          - containerPort: 3001 # Google Assistant
+          volumeMounts:
+          - name: nodered-data
+            mountPath: /data
+          - name: nodered-jwt-key
+            mountPath: /jwt
+      volumes:
+      - name: mosquitto-data
+        persistentVolumeClaim:
+          claimName: mosquitto-data-pvc
+      - name: mosquitto-log
+        persistentVolumeClaim:
+          claimName: mosquitto-log-pvc
+      - name: nodered-data
+        persistentVolumeClaim:
+          claimName: nodered-data-pvc
+      - name: nodered-jwt-key
+        secret:
+          secretName: nodered-jwt-key
+      - configMap:
+          defaultMode: 420
+          name: mosquitto
+        name: mosquitto-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mqtt
+  labels:
+    app: mqtt
+spec:
+  ports:
+    - protocol: TCP
+      name: mqtt
+      port: 1883
+      targetPort: 1883
+    - protocol: TCP
+      name: web
+      port: 80
+      targetPort: 80
+    - protocol: TCP
+      name: google
+      port: 3001
+      targetPort: 3001
+    - protocol: TCP
+      name: websockets
+      port: 9001
+      targetPort: 9001
+  selector:
+    app: mqtt
+  type: LoadBalancer
+  loadBalancerIP: "192.168.0.8"
+  externalTrafficPolicy: Cluster
+---
+kind: Ingress
+apiVersion: extensions/v1beta1
+metadata:
+  name: mqtt
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  rules:
+    - host: mqtt.mkr.house
+      http:
+        paths:
+          - backend:
+              serviceName: mqtt
+              servicePort: 3001
+  tls:
+  - hosts:
+    - mqtt.mkr.house
+    secretName: k3s-mqtt-mkr-house-tls

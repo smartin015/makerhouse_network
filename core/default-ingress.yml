@@ -1,0 +1,11 @@
+# Push this ingress to direct Traefik to choose a specific backend
+# when there's no other matching ingress
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+ name: default
+
+spec:
+ backend:
+   serviceName: hello
+   servicePort: 80

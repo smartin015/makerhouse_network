@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ddns-lexicon
+  labels:
+    app: ddns-lexicon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ddns-lexicon
+  template:
+    metadata:
+      labels:
+        app: ddns-lexicon
+    spec:
+      volumes:
+      - name: ddns-hover-secret
+        secret:
+          secretName: ddns-hover-secret
+      containers:
+        - image: registry.mkr.house:443/ddns-lexicon
+          name: ddns-lexicon
+          env:
+            - name: SUBDOMAINS
+              value: "dev ingress mqtt registry scott hello"
+            - name: LEXICON_HOVER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  key: username
+                  name: ddns-hover-secret
+            - name: LEXICON_HOVER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: ddns-hover-secret
+          imagePullPolicy: Always

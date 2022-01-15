@@ -1,0 +1,46 @@
+# Note: when "panels": is set to empty map, passthru mode enabled (can use IDs directly)
+apiVersion: v1
+data:
+  # Studio Nanoleaf
+  192.168.1.18: |
+    {
+      "token": "y13gnqg4InrxKhl8ARoTis6NbvZxsRhr",
+      "panels": {
+        "theater": 10,
+        "massage_chair": 97,
+        "bathroom_1f": 145,
+        "laundry": 168, 
+        "workshop": 175,
+        "gym": 31,
+        "printer": 170,
+        "beltprinter": 219
+      }
+    }
+  # Basement Nanoleaf
+  192.168.1.17: |
+    {
+      "token": "jf60iWbdkKNDiIpeRIjNlWSfWjLhyeIL",
+      "panels": {
+        "theater": 168,
+        "massage_chair": 228,
+        "bathroom_basement": 219,
+        "laundry": 119,
+        "gym": 5,
+        "beltprinter": 6
+      }
+    }
+  # Spa Nanoleaf
+  192.168.1.16: |
+    {
+      "token": "oxWeaAgwUqCMhCueXyJasws4weiVQtve",
+      "panels": {
+        "theater": 11,
+        "workshop": 144,
+        "laundry": 140,
+        "gym": 69
+      }
+    }
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  name: nanoleaf

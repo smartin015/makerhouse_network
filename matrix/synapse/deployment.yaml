@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synapse-deployment
+spec:
+  selector:
+    matchLabels:
+      app: synapse
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: synapse
+    spec:
+      containers:
+      - name: synapse
+        image: matrixdotorg/synapse:v1.25.0
+        #args: ["generate"]
+        #env:
+        #- name: SYNAPSE_SERVER_NAME
+        #  value: "mkr.house"
+        #- name: SYNAPSE_REPORT_STATS
+        #  value: "yes"
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        ports:
+          - containerPort: 8008
+      - name: facebook-bridge
+        image: dock.mau.dev/mautrix/facebook:04cd8dbd97435f432d0671732e529ec159b07028-arm64 
+        volumeMounts:
+        - name: fb-data
+          mountPath: /data
+        ports: 
+          - containerPort: 29319
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: synapse-pvc
+      - name: fb-data
+        persistentVolumeClaim:
+          claimName: facebook-bridge-pvc

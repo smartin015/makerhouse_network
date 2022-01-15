@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: private-registry
+  labels:
+    app: private-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: private-registry
+  template:
+    metadata:
+      labels:
+        app: private-registry
+    spec:
+      volumes:
+      - name: private-registry-vol
+        persistentVolumeClaim:
+          claimName: private-registry-pvc
+      - name: htpasswd
+        secret:
+          secretName: private-registry-htpasswd
+      containers:
+        - image: registry:2
+          name: private-registry
+          env:
+            - name: REGISTRY_HTTP_ADDR
+              value: 0.0.0.0:80
+            - name: REGISTRY_AUTH
+              value: htpasswd
+            - name: REGISTRY_AUTH_HTPASSWD_REALM
+              value: Private Registry
+            - name: REGISTRY_AUTH_HTPASSWD_PATH
+              value: /auth/htpasswd
+            - name: REGISTRY_STORAGE_DELETE_ENABLED
+              value: "true"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          volumeMounts:
+          - name: private-registry-vol
+            mountPath: /var/lib/registry
+          - name: htpasswd
+            mountPath: /auth
+            readOnly: true
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: private-registry
+  labels:
+    app: private-registry
+spec:
+  ports:
+    - name: http
+      protocol: TCP 
+      port: 80
+      targetPort: 80
+  selector:
+    app: private-registry
+  type: LoadBalancer
+  loadBalancerIP: 192.168.0.5
+  externalTrafficPolicy: Cluster
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: private-registry-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 50Gi
+---
+kind: Ingress
+apiVersion: extensions/v1beta1
+metadata:
+  name: private-registry
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  rules:
+    - host: registry.mkr.house
+      http:
+        paths:
+          - backend:
+              serviceName: private-registry
+              servicePort: 80
+  tls:
+  - hosts:
+    - registry.mkr.house
+    secretName: k3s-registry-mkr-house-tls

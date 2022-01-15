@@ -1,0 +1,6 @@
+version: "3.7"
+
+services:
+  nodered:
+    image: registry.mkr.house:443/nodered
+    build: .

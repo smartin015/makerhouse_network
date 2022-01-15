@@ -1,0 +1,8 @@
+services:
+  ddns:
+    build: .
+    image: registry.mkr.house:443/ddns-lexicon
+    environment:
+      - LEXICON_HOVER_USERNAME
+      - LEXICON_HOVER_PASSWORD
+    restart: unless-stopped

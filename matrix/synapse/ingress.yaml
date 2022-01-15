@@ -1,0 +1,22 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: synapse-nginx
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    #This defines the maximum uploadable filesize for Media.
+    #"max_upload_size" also needs to be adjusted inside homeserver.yaml
+    nginx.ingress.kubernetes.io/proxy-body-size: 100M
+spec:
+  rules:
+  - host: matrix.mkr.house
+    http:
+      paths:
+      - backend:
+          serviceName: synapse-service
+          servicePort: 8008
+  tls:
+  - hosts:
+    - matrix.mkr.house
+    secretName: k3s-matrix-mkr-house-tls

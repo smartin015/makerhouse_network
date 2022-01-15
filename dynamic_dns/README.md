@@ -1,0 +1,1 @@
+This deployment periodically changes a DNS configuration to correctly point to a dynamic IP address. This is necessary for home networks where "traditional" router-based DDNS doesn't work (e.g. an unsupported hosting provider)

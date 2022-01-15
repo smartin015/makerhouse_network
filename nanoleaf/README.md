@@ -1,4 +1,10 @@
-# Setup instructions for a new nanoleaf
+# NanoLeaf Home State Indicators
+
+This service controls individual panel states of a collection of NanoLeaf panels, using the python `nanoleafapi`. 
+
+It listens on MQTT for colors to set the panels to, and syncs them across different installations of NanoLeaf.
+
+## Setup instructions for a new nanoleaf
 
 Following https://pypi.org/project/nanoleafapi/
 
@@ -9,10 +15,10 @@ Following https://pypi.org/project/nanoleafapi/
 1. Then `nl = Nanoleaf(ip)`, `nl.identify()` to blink the nanoleaf & confirm
 1. Do `nl.get_auth_token()` and write it into a file `config/<ip_address>` so it's loaded by the container
 
-# New panels on an existing controller
+## New panels on an existing controller
 
 Check `docker-compose logs`, which reports on panel IDs not yet configured per IP address
 
-# Migrating between hosts
+## Migrating between hosts
 
 Ensure ~/makerhouse/containers/nanoleaf is up to date with HEAD (the version on github), then copy the config files at `config/...` to the new host (these should NOT get checked in). You may also have to rename the files if the IP address of the nanoleaf has changed since the container was last restarted.

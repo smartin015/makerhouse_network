@@ -1,15 +1,23 @@
 # makerhouse_network
 
-
 Public scripts, services, and configuration for running MakerHouse's home network. This network supports:
 
-* TODO features here
+* external HTTPS endpoints (Traefik & Cert-Manager)
+* virtual services accessible via IP address (MetalLB)
+* DNS-level adblocking (PiHole)
+* inter-device pub/sub messaging via MQTT (Mosquitto)
+* distributed storage (Longhorn)
+* automation flows (NodeRed)
+* monitoring, dashboarding, and alerting (Prometheus / Grafana)
+* custom container hosting (via private registry)
 
 For more high level details, see [this blog post](TODO TODO TODOOOOOO)
 
 ![image1](https://user-images.githubusercontent.com/607666/149633433-d87defd0-4143-4bab-8256-fe7ab35c6d46.png)
 
 TODO use the drawing at https://docs.google.com/drawings/d/1UkQKlT5fA8L5bAdiAecp-bR1siNsGnlf4KK2kBhsDHk/edit
+
+For additional services deployed on top of this stack, see the other `*.md` files in this repository.
 
 ## Setup
 
@@ -409,30 +417,6 @@ We'll set up an additional scrape config (for e.g. nodered custom metrics; [see 
 4. `kubectl create secret generic additional-scrape-configs --from-file=prometheus-additional.yaml --dry-run -oyaml > additional-scrape-configs.yaml`
 5. `kubectl apply -f additional-scrape-configs.yaml`
 
-### Troubleshooting
-
-If prometheus runs out of space, the "prometheus-prometheus-kube-prometheus-prometheus-0" job will crashloop forever with an obscure stack trace. Resizing the volume that prometheus uses is somewhat tricky:
-
-1. go to 192.168.0.4 (the longhorn web ui) to assess how much storage you can assign.
-2. `kubectl edit deployment prometheus-kube-prometheus-operator`
-    * Set "replicas" to 0. The operator automatically updates other prometheus entities in kubernetes, so if it's running you can't edit replicasets etc. without them immediately being reverted.
-3. `kubectl edit statefulset prometheus-prometheus-kube-prometheus-prometheus`
-    * Set "replicas" to 0. This generates the pod which binds to the data volume. Longhorn storage *must* be unbound before it can be resized.
-4. `vim ~/makerhouse/k3s/k3s-prometheus-stack-values.yaml` 
-    * Under prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage, change to e.g. "50Gi"
-5. `helm upgrade prometheus prometheus-community/kube-prometheus-stack --values k3s-prometheus-stack-values.yaml`
-    * Longhorn should indicate the volume is being resized. You can also check with `kubectl describe pvc prometheus-prometheus-prometheus-kube-prometheus-prometheus-0` and look for an event like "External resizer is resizing volume pvc-9da184ed-28f9-48d1-82ea-3e0c0a93cf1d"
-    * If the status of the pvc is still "Bound", run `kubectl get pods | grep prometheus` to see whether the prometheus operator or the main prometheus pod is still running for some reason. It should be deletable with `kubectl delete pod &lt;foo>` if the deployment and statefulset are both set to 0 replicas. 
-
-If you want to delete unneeded metrics:
-
-* `curl -X POST -g 'http://localhost:9090/api/v1/admin/tsdb/delete_series?match[]=a_bad_metric&match[]={region="mistake"}'`
-    * See [https://www.robustperception.io/deleting-time-series-from-prometheus](https://www.robustperception.io/deleting-time-series-from-prometheus) 
-* `curl -X POST -g 'http://prometheus:9090/api/v1/admin/tsdb/delete_series?match[]={instance="192.168.1.5:6443"}'`
-    * Deletes all metrics for a particular target/instance. 
-* `curl -X POST -g [http://prometheus:9090/api/v1/admin/tsdb/clean_tombstones](http://prometheus:9090/api/v1/admin/tsdb/clean_tombstones)`
-    * Do this to actually garbage collect the data - note that this may grow the used disk size (up to 2X if you're deleting most things!) before it shrinks it
-
 ## MQTT (NodeRed + Mosquitto)
 
 We will be using [MQTT](https://mqtt.org/) to pass messages to and from embedded IoT and other devices, and [Node-RED](https://nodered.org/) to set up automation flows based on messages seen. 
@@ -449,25 +433,3 @@ To support Google Assistant commands, we'll need a JWT file. More details [on th
 
 4. `kubectl create secret generic nodered-jwt-key --from-file=/home/ubuntu/makerhouse/k3s/secretfile.json`
 
-## Maintenance Log
-
-### 2021-04-30 Master node reinstall
-
-Prep:
-
-* Set router DHCP to 8.8.8.8 DNS 
-* Copied pihole config ("Teleporter" setting)
-* Saved Nodered flows
-* TODO Copy k3s keys
-
-Unlisted dependency:
-
-* When setting up SSL cert-manager, certificates couldn’t be issued because the Hover IP hadn’t been updated. Manually update IP in Hover to current house IP.
-
-### 2021-07-22 personal website install
-
-Needed to extend the "SUBDOMAIN" env var in ddns-lexicon.yml, and possibly also add the record to hover.com (may be doing an update, not an upsert?) in addition to creating ingress/service/deployment k3s configs
-
-### 2021-09-02 pihole out of disk
-
-Ran `pihole -g -r` to recreate gravity.db, also deleted /etc/pihole/pihole-FTL.db

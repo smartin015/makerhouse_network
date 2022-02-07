@@ -1,6 +1,6 @@
 # makerhouse_network
 
-Scripts, services, and configuration for running MakerHouse's home network and cluster. Features include:
+Scripts, services, and configuration for running [MakerHouse](https://www.mkr.house/)'s home network and cluster. Features include:
 
 * external HTTPS endpoints (Traefik & Cert-Manager)
 * virtual services accessible via IP address (MetalLB)
@@ -39,15 +39,15 @@ Knowledge prerequisites for this guide:
 
 * Some basic networking (e.g. how to find a remote device's IP address and SSH into it)
 * Linux command line fundamentals (navigating to files, opening and editing them, and running commands)
-* It's also useful to know what DHCP is and how to configure it and subnets in your router, for the optional network setup step.
+* It's also useful to know what DHCP is and how to configure it and subnets in your router, for the optional network setup step
 
-Even if you have advanced knowledge of kubernetes, be prepared to spend several hours on initial setup, plus an hour or two here and there to further refine it.
+Be prepared to spend several hours on initial setup, plus an hour or two here and there for further refinements.
 
 ## 1.1: Purchasing the Hardware
 
 For the cluster network, you will need:
 
-* A gigabit ethernet switch with as many ports as the number of nodes in your cluster, plus one (such as [this one](https://www.amazon.com/gp/product/B0000BVYT3/))
+* A gigabit ethernet switch with as many ports as nodes in your cluster, plus one (such as [this one](https://www.amazon.com/gp/product/B0000BVYT3/))
 * An ethernet cable connected to your existing network
 
 For each node, you will need:
@@ -70,13 +70,9 @@ Before continuing on:
 
 ### A note on earlier versions of raspbery pi:
 
-Try to avoid using raspberry pi's earlier than the pi 4. To check for compatibility, run:
+Try to avoid using raspberry pi's earlier than the pi 4. 
 
-```
-uname -a
-```
-
-If the output contains armv6l then kubernetes does not support the device. There are precompiled k8s binaries for armv6l which you could get, but you’d have to compile manually. [This issue](https://github.com/kubernetes/kubeadm/issues/253) describes that kubernetes support for armv6l has been dropped.
+To check for compatibility, run `uname -a`. If the output contains armv6l then kubernetes does not support the device. There are precompiled k8s binaries for armv6l which you could get, but you’d have to compile manually. [This issue](https://github.com/kubernetes/kubeadm/issues/253) describes that kubernetes support for armv6l has been dropped.
 
 A comment at the end of that issue links to compiled binaries for armv6l: [https://github.com/aojea/kubernetes-raspi-binaries](https://github.com/aojea/kubernetes-raspi-binaries)
 
@@ -95,9 +91,9 @@ If you wish to have public services, set up port forwarding rules for `192.168.0
 
 ### Setup SSD boot
 
-Follow [these instructions](https://www.tomshardware.com/how-to/boot-raspberry-pi-4-usb) to install a USB bootloader onto each pi. Stop when you get to step 9 (inserting the Raspberry Pi OS) as we'll be installing Ubuntu instead.
+Follow [these instructions](https://www.tomshardware.com/how-to/boot-raspberry-pi-4-usb) to install a USB bootloader onto each pi. Stop when you get to step 9 (inserting the Raspberry Pi OS) as we'll be installing Ubuntu for Servers instead.
 
-Use https://www.balena.io/etcher/ or similar to write an [Ubuntu 20.04 ARM 64-bit LTS image ](https://ubuntu.com/download/server/arm) to one of the SSDs. We'll do the majority of setup on this drive, then clone it to the other pi's (with some changes).
+Use https://www.balena.io/etcher/ or similar to write an [Ubuntu 20.04 ARM 64-bit LTS image](https://ubuntu.com/download/server/arm) to one of the SSDs. We'll do the majority of setup on this drive, then clone it to the other pi's (with some changes).
 
 ### Enable cgroups and SSH
 
@@ -167,7 +163,7 @@ Where K3S_URL is the URL and port of a k3s server, and K3S_TOKEN comes from `/va
 
 ### Verifying
 
-That should be it! You can confirm the node successfully joined the cluster by running `kubectl get nodes` when SSH'd into `k3s1:
+That should be it! You can confirm the node successfully joined the cluster by running `kubectl get nodes` when SSH'd into `k3s1`:
 
 ```
 ~ kubectl get nodes
@@ -224,7 +220,7 @@ Test whether metallb is working by starting an exposed service, then cleaning up
 
 ### Troubleshooting
 
-Some failure modes of MetalLB cause only a fraction of the VIPs to not be responsive.
+Some failure modes of MetalLB cause only a fraction of the VIPs (Virtual IPs) to not be responsive.
 
 Check to see if all MetalLB pods are in state "running" via `kubectl get pods -n metallb-system -o wide`:
 

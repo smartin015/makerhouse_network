@@ -89,10 +89,6 @@ This guide will assume your router is set up with a LAN subnet of `192.168.0.0/2
 * IP addresses from `192.168.1.2-254` are for physical devices (the pi's, other IoT devices, laptops, phones etc.)
   * We recommend having a static IP address range not managed by DHCP, e.g. `192.168.1.2-30` and avoiding leasing `192.168.1.1` as it'd be confusing.
 
-### Optional: port forwarding for external use
-
-If you wish to have public services, set up port forwarding rules for `192.168.0.2` (or the equivalent `loadBalancerIP` set below) for ports 80 and 443, so that your services can be viewed outside the local network.
-
 ## 1.3: Flashing the OS
 
 ### Setup SSD boot
@@ -197,7 +193,7 @@ Now edit the server address to be the address of the pi, since from the server's
 sed -i "s/127.0.0.1/<actual server IP address>/g" ~/.kube/config
 ```
 
-## 2.1a: Configuring the load balancer and reverse proxy
+## 2.1: Configuring the load balancer and reverse proxy
 
 We will be using [MetalLB](https://metallb.universe.tf/) to allow us to "publish" virtual cluster services on actual IP addresses (in our `192.168.0.2-254` range). This allows us to type in e.g. `192.168.0.10` in a browser and see a webpage hosted from our cluster, without having a device with that specific IP address.
 
@@ -243,7 +239,80 @@ More details - download kubetail - see bottom of [this page](https://metallb.uni
 * `./kubetail.sh -l component=speaker -n metallb-system`
 * If you see an error like "connection refused" referencing 192.168.1.#:7946, check to see if one of the "speaker" pods isn't actually running. 
 
-## (Optional) 2.1b: reverse-proxy with Traefik
+## 2.2: Installing a distributed storage solution
+
+Now we can set up a distributed storage solution. Storage should be replicated just as with nodes in a cluster - in this way, no storage location is a single point of failure for the cluster.
+
+We'll be using [Longhorn](https://rancher.com/products/longhorn), the recommended solution from Rancher, which you can read more about [here](https://longhorn.io/). In addition to data redundancy, it abstracts away "where the data is stored" and lets us specify a size of storage to use as a persistent volume for any individual servce, regardless of which node it's hosted on.
+
+Follow the [installation guide](https://rancher.com/docs/k3s/latest/en/storage/) to set it up. See `core/longhorn.yaml` for the MakerHouse configured version, which pins the specific config and version, and tells MetalLB to expose it on 192.168.0.4 (see the `loadBalancerIP` setting).
+
+_Note: this solution requires an arm64 architecture, NOT armhf/armv7l which is the default for Raspbian / Raspberry PI OS. If you followed the instructions for OS installation above, you should be OK._
+
+Be sure to set Longhorn as the default storage class, so that service configs without an explicit `storageClass` specified can automatically use it:
+
+```
+kubectl patch storageclass longhorn -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
+```
+
+The Longhorn UI is not available by default; you can expose it with [these instructions](https://longhorn.io/docs/1.0.0/deploy/accessing-the-ui/).
+
+
+# Next steps
+
+At this point, you should have a home raspberry pi cluster running k3s, with locally available endpoints and distributed block storage. Congrats!
+
+While this is entirely functional on its own for running simple home services, you may find it lacking if you want to host your own custom/private container images,publish webpages / APIs for external use, or integrate with home automation services (e.g. control homebrew IoT devices with Google Assistant).
+
+Head over to [ADVANCED_SETUP.md](ADVANCED_SETUP.md) to learn how to get the most out of your k3s cluster!
+
+## 3.2: Prometheus monitoring & Grafana dashboarding
+
+We'll set up [Prometheus](https://prometheus.io/) to collect metrics - including timeseries data we expose from IoT devices via NodeRed.
+
+[Grafana](https://grafana.com/) will host dashboards showing visualizations of the data we collect.
+
+We'll use [Helm](https://helm.sh/) to install Prometheus, as there is a nice community-provided Helm "chart" that does a lot of setup work for us.
+
+```
+helm repo add prometheus-community [https://prometheus-community.github.io/helm-charts](https://prometheus-community.github.io/helm-charts)
+helm upgrade --install prometheus prometheus-community/kube-prometheus-stack --values k3s-prometheus-stack-values.yaml
+```
+
+If you need to modify the config, you can see what changes to the `*values.yaml` file do by running: `helm upgrade **--dry-run** prometheus prometheus-community/kube-prometheus-stack --values k3s-prometheus-stack-values.yaml`
+
+We'll set up an additional scrape config (for e.g. nodered custom metrics; [docs here](https://github.com/prometheus-operator/prometheus-operator/blob/master/Documentation/additional-scrape-config.md)).
+
+```
+kubectl create secret generic additional-scrape-configs --from-file=prometheus-additional.yaml --dry-run -oyaml > additional-scrape-configs.yaml
+kubectl apply -f additional-scrape-configs.yaml
+```
+
+## 3.3: MQTT (NodeRed + Mosquitto)
+
+We use [MQTT](https://mqtt.org/) to pass messages to and from embedded IoT and other devices, and [Node-RED](https://nodered.org/) to set up automation flows based on those messages. 
+
+Let's build the nodered image to include some extra plugins not provided by the default one:
+
+`cd ./nodered && docker build -t registry.mkr.house:443/nodered:latest && docker image push registry.mkr.house:443/nodered:latest`
+
+Both MQTT and NodeRed are included in the `mqtt.yaml` config. "mosquitto" is the specific MQTT broker we're installing.
+
+`kubectl apply -f mqtt.yaml -f configmap-mosquitto.yml`
+
+To support Google Assistant commands, we'll need a JWT file. More details [on the plugin page](https://flows.nodered.org/node/node-red-contrib-google-smarthome) for how to acquire this file for your particular instance.
+
+`kubectl create secret generic nodered-jwt-key --from-file=/home/ubuntu/makerhouse/k3s/secretfile.json`
+
+# (Optional) 4: External access
+
+The following steps are for if you want to enable access of your cluster's services from outside of your local network. This can be necesary for some integrations (e.g. NodeRed and Google Assistant) but it may cause vulnerability if not done carefully. The instructions below should provide a secure setup, but variations in home network and cluster setup may still allow for unwanted access. Be careful, and proceed at your own risk.
+
+## 4.1: Port forwarding for external use
+
+If you wish to have public services, set up port forwarding rules for `192.168.0.2` (or the equivalent `loadBalancerIP` set below) for ports 80 and 443, so that your services can be viewed outside the local network.
+
+## 4.2: reverse-proxy with Traefik
 
 We will use [Traefik](https://doc.traefik.io/traefik/) to reverse-proxy incoming requests. This lets us different services respond to different subdomains (`mqtt.mkr.house` and `registry.mkr.house`, for instance) without having to do lots of manual IP address mapping. This will require port forwarding to be set up as described in "Network Setup" above, or else you will not be able to route external traffic to your k3s services.
 
@@ -280,31 +349,11 @@ Note: Attempts to query `*.mkr.house` internally lead to the router admin page. 
 
 * You can use `journalctl -u k3s` to view k3s logs and look for errors.
 
-## 2.2: Installing a distributed storage solution
-
-Now we can set up a distributed storage solution. Storage should be replicated just as with nodes in a cluster - in this way, no storage location is a single point of failure for the cluster.
-
-We'll be using [Longhorn](https://rancher.com/products/longhorn), the recommended solution from Rancher, which you can read more about [here](https://longhorn.io/). In addition to data redundancy, it abstracts away "where the data is stored" and lets us specify a size of storage to use as a persistent volume for any individual servce, regardless of which node it's hosted on.
-
-Follow the [installation guide](https://rancher.com/docs/k3s/latest/en/storage/) to set it up. See `core/longhorn.yaml` for the MakerHouse configured version, which pins the specific config and version, and tells MetalLB to expose it on 192.168.0.4 (see the `loadBalancerIP` setting).
-
-_Note: this solution requires an arm64 architecture, NOT armhf/armv7l which is the default for Raspbian / Raspberry PI OS. If you followed the instructions for OS installation above, you should be OK._
-
-Be sure to set Longhorn as the default storage class, so that service configs without an explicit `storageClass` specified can automatically use it:
-
-```
-kubectl patch storageclass longhorn -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
-```
-
-(Optional) The Longhorn UI is not exposed by default; you can expose it with [these instructions](https://longhorn.io/docs/1.0.0/deploy/accessing-the-ui/).
-
-## (Optional) 2.3: Setting up SSL certificate handling and dynamic DNS
+## 4.3: Setting up SSL certificate handling and dynamic DNS
 
 Now we will set up SSL certificate handling, so that we can serve https pages without browsers complaining about "risky business".
 
-Dynamic DNS will also be configured so that an external DNS provider (in our case, Hover) can direct web traffic to our cluster using a domain name.
-
-If you do not want to set up external access, you can skip to the next section.
+Dynamic DNS will also be configured so that an external DNS provider (in our case, Hover) can direct web traffic to our cluster using a domain name. If you don't already have a particular hosting provider, you can use [our referral code](https://hover.com/yOLF7gpu) and get a $2 credit off your first domain purchase (we get a $2 kickback as well).
 
 ### Certificate Management
 
@@ -401,41 +450,24 @@ Let's copy it to the remaining nodes and reboot them:
 15. `sudo service k3s-agent restart`
 16. Repeat steps 11-15 for `k3s3`.
 
-## 3.2: Prometheus monitoring & Grafana dashboarding
+### Dynamic DNS
 
-We'll set up [Prometheus](https://prometheus.io/) to collect metrics - including timeseries data we expose from IoT devices via NodeRed.
+Dynamic DNS allows for a DNS provider to route web traffic to a IP address which changes over time (such as one provided for a residence by an ISP). Some providers have their own setup for DDNS which you can configure in your home router - others (including Hover) do not have a dedicated process and require a bit more setup.
 
-[Grafana](https://grafana.com/) will host dashboards showing visualizations of the data we collect.
-
-We'll use [Helm](https://helm.sh/) to install Prometheus, as there is a nice community-provided Helm "chart" that does a lot of setup work for us.
+We use a custom container hosted on our private registry (configured above) to renew the dynamic DNS when our IP changes. To set this up:
 
 ```
-helm repo add prometheus-community [https://prometheus-community.github.io/helm-charts](https://prometheus-community.github.io/helm-charts)
-helm upgrade --install prometheus prometheus-community/kube-prometheus-stack --values k3s-prometheus-stack-values.yaml
+cd .../makerhouse_network/dynamic_dns
+
+# Build the container image and push it to the registry
+docker-compose build
+docker image push registry.mkr.house:443/ddns_lexicon:latest
+
+# Push credentials to k3s
+# (Replace the $VARs with your credentials for your DNS provider)
+./create_ddns_secrets.sh $DNS_USER $DNS_PASSWORD
+
+# Set up the k3s deployment
+# Note: you will need to edit the file if you want to manage different subdomains or have a different registry name
+kubectl apply -f ddns_lexicon.yaml
 ```
-
-If you need to modify the config, you can see what changes to the `*values.yaml` file do by running: `helm upgrade **--dry-run** prometheus prometheus-community/kube-prometheus-stack --values k3s-prometheus-stack-values.yaml`
-
-We'll set up an additional scrape config (for e.g. nodered custom metrics; [docs here](https://github.com/prometheus-operator/prometheus-operator/blob/master/Documentation/additional-scrape-config.md)).
-
-```
-kubectl create secret generic additional-scrape-configs --from-file=prometheus-additional.yaml --dry-run -oyaml > additional-scrape-configs.yaml
-kubectl apply -f additional-scrape-configs.yaml
-```
-
-## 3.3: MQTT (NodeRed + Mosquitto)
-
-We use [MQTT](https://mqtt.org/) to pass messages to and from embedded IoT and other devices, and [Node-RED](https://nodered.org/) to set up automation flows based on those messages. 
-
-Let's build the nodered image to include some extra plugins not provided by the default one:
-
-`cd ./nodered && docker build -t registry.mkr.house:443/nodered:latest && docker image push registry.mkr.house:443/nodered:latest`
-
-Both MQTT and NodeRed are included in the `mqtt.yaml` config. "mosquitto" is the specific MQTT broker we're installing.
-
-`kubectl apply -f mqtt.yaml -f configmap-mosquitto.yml`
-
-To support Google Assistant commands, we'll need a JWT file. More details [on the plugin page](https://flows.nodered.org/node/node-red-contrib-google-smarthome) for how to acquire this file for your particular instance.
-
-`kubectl create secret generic nodered-jwt-key --from-file=/home/ubuntu/makerhouse/k3s/secretfile.json`
-

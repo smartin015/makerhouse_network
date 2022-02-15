@@ -19,6 +19,10 @@ For additional services deployed on top of this stack, see the other `*.md` file
 
 ## Setup
 
+For setup, we will be installing a 64-bit ARM version of Ubuntu onto several raspberry pi's.
+
+Then, we will install a version of kubernetes called [k3s](https://k3s.io/) which is optimized for running on IoT and "edge" devices but is otherwise a drop-in replacement for [k8s i.e. kubernetes](https://kubernetes.io/). This lets us run replicated services with all of the fancy features listed above.
+
 Setting up a replicated pi cluster is an involved process consisting of several steps:
 
 1. Setting up the cluster
@@ -61,6 +65,8 @@ For sufficient storage, you will need (per node):
 * A USB 3 NVMe M.2 SSD enclosure (such as [this one](https://www.amazon.com/gp/product/B07MNFH1PX))
 * An NVMe M.2 SSD (I picked [this 256GB one](https://www.amazon.com/gp/product/B07ZGK3K4V))
 
+You will also likely need an SD card image to flash a "USB boot" bootloader to your raspberry pi's. This will only be needed for initial setup - it will not be used after the pi's boot via SSD.
+
 Before continuing on:
 
 1. Connect your switch to power and the LAN
@@ -70,20 +76,20 @@ Before continuing on:
 
 ### A note on earlier versions of raspbery pi:
 
-Try to avoid using raspberry pi's earlier than the pi 4. 
+TL;DR: Try to avoid using raspberry pi's earlier than the pi 4, and distributions running ARMv6. If you use a Pi 4 and follow the instructions below, you're in the clear. 
 
-To check for compatibility, run `uname -a`. If the output contains armv6l then kubernetes does not support the device. There are precompiled k8s binaries for armv6l which you could get, but you’d have to compile manually. [This issue](https://github.com/kubernetes/kubeadm/issues/253) describes that kubernetes support for armv6l has been dropped.
+For compatibility with published k3s binaries, you must also be running an ARMv7 or higher OS. This is [only supported on Raspberry Pi 2B and higher](https://wiki.ubuntu.com/ARM/RaspberryPi).[This issue](https://github.com/kubernetes/kubeadm/issues/253) describes that kubernetes support for ARMv6 has been dropped.
 
-A comment at the end of that issue links to compiled binaries for armv6l: [https://github.com/aojea/kubernetes-raspi-binaries](https://github.com/aojea/kubernetes-raspi-binaries)
+## 1.2: Network setup
 
-## 1.2: (Optional) Network setup
-
-This guide will assume your router is set up with a LAN subnet of `192.168.0.0/23` (i.e. allowing for IP addresses from `192.168.0.1` all the way to `192.168.1.254`).
+This guide will assume your router is set up with a LAN subnet of `192.168.0.0/23` (i.e. allowing for IP addresses from `192.168.0.1` all the way to `192.168.1.254`). You may also use `192.168.0.0/16` as well, if you don't plan to have any other subnets on your local network (it takes up the full `192.168.*` range).
 
 * `192.168.0.1` is the address of the router
 * IP addresses from `192.168.0.2-254` are for exposed cluster services (i.e. virtual devices)
 * IP addresses from `192.168.1.2-254` are for physical devices (the pi's, other IoT devices, laptops, phones etc.)
   * We recommend having a static IP address range not managed by DHCP, e.g. `192.168.1.2-30` and avoiding leasing `192.168.1.1` as it'd be confusing.
+
+### Optional: port forwarding for external use
 
 If you wish to have public services, set up port forwarding rules for `192.168.0.2` (or the equivalent `loadBalancerIP` set below) for ports 80 and 443, so that your services can be viewed outside the local network.
 
@@ -97,7 +103,7 @@ Use https://www.balena.io/etcher/ or similar to write an [Ubuntu 20.04 ARM 64-bi
 
 ### Enable cgroups and SSH
 
-Unplug and re-plug the SSD, then navigate to the `boot` partition and ensure there's a file labeled `ssh` there (if not, create a blank one). This allows us to remote in to the pi's.
+**On your local machine** (not the pi) unplug and re-plug the SSD, then navigate to the `boot` partition and ensure there's a file labeled `ssh` there (if not, create a blank one). This allows us to remote in to the pi's.
 
 Now we will enable [cgroups](https://en.wikipedia.org/wiki/Cgroups) which are used by k3s to manage the resources of processes that are running on the cluster. 
 
@@ -112,9 +118,11 @@ ubuntu@k3s1:~$ cat /boot/firmware/cmdline.txt
 net.ifnames=0 dwc_otg.lpm_enable=0 console=serial0,115200 console=tty1 root=LABEL=writable rootfstype=ext4 elevator=deadline rootwait fixrtc cgroup_enable=memory cgroup_memory=1
 ```
 
+You can now unmount and remove the SSD from your local machine.
+
 ### Verify installation
 
-Plug in the SSD, then plug in power to your pi.
+Plug in the SSD to your pi, then plug in USB-C power to turn it on.
 
 Look on your router to find the IP address of the pi. You should be able to SSH into it with username and password `ubuntu`. 
 
@@ -130,7 +138,7 @@ Now's a good time to edit your router settings and assign static IP addresses to
 
 ## 1.4: Installing k3s and linking the nodes together
 
-For a three node cluster, we'll have one server node named `k3s1` and two worker nodes (`k3s2` and `k3s3`). These instructions generally follow the [installation guide from Rancher](https://rancher.com/docs/k3s/latest/en/installation/install-options/).
+For a three node cluster, we'll have one "master" node named `k3s1` and two worker nodes (`k3s2` and `k3s3`). These instructions generally follow the [installation guide from Rancher](https://rancher.com/docs/k3s/latest/en/installation/install-options/).
 
 ### Set up k3s1 as master
 
@@ -189,11 +197,9 @@ Now edit the server address to be the address of the pi, since from the server's
 sed -i "s/127.0.0.1/<actual server IP address>/g" ~/.kube/config
 ```
 
-## 2.1: Configuring the load balancer and reverse proxy
+## 2.1a: Configuring the load balancer and reverse proxy
 
 We will be using [MetalLB](https://metallb.universe.tf/) to allow us to "publish" virtual cluster services on actual IP addresses (in our `192.168.0.2-254` range). This allows us to type in e.g. `192.168.0.10` in a browser and see a webpage hosted from our cluster, without having a device with that specific IP address.
-
-We will also use [Traefik](https://doc.traefik.io/traefik/) to reverse-proxy incoming requests. This lets us different services respond to different subdomains (`mqtt.mkr.house` and `registry.mkr.house`, for instance) without having to do lots of manual IP address mapping.
 
 ### MetalLB load balancing / endpoint handling
 
@@ -237,6 +243,12 @@ More details - download kubetail - see bottom of [this page](https://metallb.uni
 * `./kubetail.sh -l component=speaker -n metallb-system`
 * If you see an error like "connection refused" referencing 192.168.1.#:7946, check to see if one of the "speaker" pods isn't actually running. 
 
+## (Optional) 2.1b: reverse-proxy with Traefik
+
+We will use [Traefik](https://doc.traefik.io/traefik/) to reverse-proxy incoming requests. This lets us different services respond to different subdomains (`mqtt.mkr.house` and `registry.mkr.house`, for instance) without having to do lots of manual IP address mapping. This will require port forwarding to be set up as described in "Network Setup" above, or else you will not be able to route external traffic to your k3s services.
+
+If you do not want to publish external services, you can ignore this part.
+
 ### Traefik configuration
 
 Traefik is already installed by default with k3s. We still need to configure it, though.
@@ -262,7 +274,7 @@ Generate the dashboard password:
   * `kubectl get ingress`
     * You should see something like `hello   &lt;none>   i.mkr.house   192.168.0.2   80      2m2s`
 
-Note: Attempts to query `*.mkr.house` internally lead to the router admin page. You'll need to use a mobile network to test external ingress properly, i.e. that with the lbtest.yaml and default-ingress.yml applied, a "Welcome to nginx!" page is displayed from outside the network.
+Note: Attempts to query `*.mkr.house` internally lead to the router admin page. You'll need to use a mobile network or VPN to test external ingress properly, i.e. that with the lbtest.yaml and default-ingress.yml applied, a "Welcome to nginx!" page is displayed from outside the network.
 
 ### Troubleshooting tips
 
@@ -270,33 +282,35 @@ Note: Attempts to query `*.mkr.house` internally lead to the router admin page. 
 
 ## 2.2: Installing a distributed storage solution
 
-Now we can set up a distributed storage solution, so that we can host things on any of the pi's that can move freely between them without worring about which pi the data is on. 
+Now we can set up a distributed storage solution. Storage should be replicated just as with nodes in a cluster - in this way, no storage location is a single point of failure for the cluster.
 
-We'll be using [Longhorn](https://rancher.com/products/longhorn), the recommended solution from Rancher.
+We'll be using [Longhorn](https://rancher.com/products/longhorn), the recommended solution from Rancher, which you can read more about [here](https://longhorn.io/). In addition to data redundancy, it abstracts away "where the data is stored" and lets us specify a size of storage to use as a persistent volume for any individual servce, regardless of which node it's hosted on.
 
-Follow the [installation guide](https://rancher.com/docs/k3s/latest/en/storage/) to set it up. See `core/longhorn.yaml` for the MakerHouse configured version.
+Follow the [installation guide](https://rancher.com/docs/k3s/latest/en/storage/) to set it up. See `core/longhorn.yaml` for the MakerHouse configured version, which pins the specific config and version, and tells MetalLB to expose it on 192.168.0.4 (see the `loadBalancerIP` setting).
 
-_Note: this solution requires an arm64 architecture, NOT armhf/armv7l which is the default for Raspbian / Raspberry PI OS._
+_Note: this solution requires an arm64 architecture, NOT armhf/armv7l which is the default for Raspbian / Raspberry PI OS. If you followed the instructions for OS installation above, you should be OK._
 
-Be sure to set it as the default storage class, or else certain Helm charts will fail to provision their persistent volumes without specifying `storageClass` specifically:
+Be sure to set Longhorn as the default storage class, so that service configs without an explicit `storageClass` specified can automatically use it:
 
 ```
 kubectl patch storageclass longhorn -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
 ```
 
-The Longhorn UI is not exposed by default; you can expose it with [these instructions](https://longhorn.io/docs/1.0.0/deploy/accessing-the-ui/).
+(Optional) The Longhorn UI is not exposed by default; you can expose it with [these instructions](https://longhorn.io/docs/1.0.0/deploy/accessing-the-ui/).
 
-## 2.3: Setting up SSL certificate handling and dynamic DNS
+## (Optional) 2.3: Setting up SSL certificate handling and dynamic DNS
 
 Now we will set up SSL certificate handling, so that we can serve https pages without browsers complaining about "risky business".
 
 Dynamic DNS will also be configured so that an external DNS provider (in our case, Hover) can direct web traffic to our cluster using a domain name.
 
+If you do not want to set up external access, you can skip to the next section.
+
 ### Certificate Management
 
 The following instructions are based on [https://opensource.com/article/20/3/ssl-letsencrypt-k3s](https://opensource.com/article/20/3/ssl-letsencrypt-k3s), but with substitutions for arm64 packages (this tutorial assumes just "arm").
 
-Note that you will need to have ports 80 and 443 forwarded to whatever address is given by `kubectl get ingress`, which is what Traefik is configured to use in `/var/lib/rancher/k3s/server/manifests/traefik-customized.yaml` (See "Traefik configuration" above).
+Note that you will need to have ports 80 and 443 forwarded to whatever local IP address is given by `kubectl get ingress`, which is what Traefik is configured to use in `/var/lib/rancher/k3s/server/manifests/traefik-customized.yaml` (See "Traefik configuration" above). In the case of Makerhouse, this is `192.168.0.2`
 
 The first two instructions aren't needed if `core/cert-manager-arm.yaml` is correct for the setup:
 
@@ -340,7 +354,7 @@ Then start the deployment:
     * This creates a persistent volume (via Longhorn), deployment/pod, an exposed service on `192.168.0.5` and a TLS certificate.
 6. Add to pihole DNS: "registry" and "registry.lan" mapping to that IP
 
-To test the registry, let's try tagging and pushing an image:
+To test the registry, let's try tagging and pushing an image. Note that you will need to "log in" to the registry in order to interact with it, which is something unique to private registries:
 
 1. `docker login registry.mkr.house:443`
    * (add username & password when prompted)

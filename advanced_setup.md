@@ -128,7 +128,6 @@ Then start the deployment:
 
 5. `kubectl apply -f  private-registry.yml`
     * This creates a persistent volume (via Longhorn), deployment/pod, an exposed service on `192.168.0.5` and a TLS certificate.
-6. Add to pihole DNS: "registry" and "registry.lan" mapping to that IP
 
 To test the registry, let's try tagging and pushing an image. Note that you will need to "log in" to the registry in order to interact with it, which is something unique to private registries:
 
@@ -160,7 +159,7 @@ Now we need to set up each node to look for the registry, following [these instr
       "registry.mkr.house:443":
         auth:
           username: "registry_htpasswd"
-          password: "r,A!U9@p>N^(nW!Ja-~6~h"
+          password: "YOUR PASSWORD"
         tls:
           insecure_skip_verify: true
     ```
@@ -247,6 +246,8 @@ There's still more that can be done - if there's interest, we may publish later 
 * Setting up [smart lighting](https://nanoleaf.me/en-US/products/nanoleaf-light-panels/) to indicate room and appliance occupancy
 * Building custom home automation devices using [Tasmota](https://tasmota.github.io/docs/) to power lights, monitor power, control HVAC devices, and more
 * Configuring shortURLs and local DNS for quick access to services, plus DNS-level adblocking using K3S-hosted [PiHole](https://pi-hole.net/)
+* Integrating Google Sheets for supplying easily-edited tabular data for automation and displays
+* Custom voice commands with Google Assistant (via MQTT)
 
 And even more advanced topics, such as:
 

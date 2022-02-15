@@ -3,13 +3,14 @@
 The following instructions build on top of the initial setup in [README.md](readme.md) and further configure your home cluster:
 
 1. Setting up external access
-    1. Reverse-proxy with Traefik
-    1. Configuring SSL certificate handling and renewal
-    2. Setting up dynamic DNS
+    1. Configuring your DNS provider
+    2. Reverse-proxy with Traefik
+    3. Configuring SSL certificate handling and renewal
 2. Customization for IoT and other uses
     1. Deploying an image registry for custom container images
-    3. Setting up MQTT for IoT messaging
-    2. Setting up monitoring/alerting 
+    2. Setting up MQTT for IoT messaging
+    3. Setting up monitoring/alerting/dashboarding with Prometheus and Grafana
+3. Setting up dynamic DNS
 
 Knowledge prerequisites for this guide:
 
@@ -24,13 +25,15 @@ The following steps are for if you want to enable access of your cluster's servi
 
 ## 1.1: DNS providers
 
-If you don't already have a particular hosting provider, you can use [our referral code](https://hover.com/yOLF7gpu) and get a $2 credit off your first domain purchase (we get a $2 kickback as well). Otherwise, please use the provider of your choice and register a [DNS A Record](https://www.cloudflare.com/learning/dns/dns-records/dns-a-record/#:~:text=What%20is%20a%20DNS%20A,210.9.) for your domain that points to the external IP address of your home network (you can use e.g. https://www.whatismyip.com/ to find this address). 
+If you don't already have a particular hosting provider, you can use [our referral code](https://hover.com/yOLF7gpu) and get a $2 credit off your first domain purchase (we get a $2 kickback as well). 
+
+Otherwise, please use the provider of your choice and register a [DNS A Record](https://www.cloudflare.com/learning/dns/dns-records/dns-a-record/#:~:text=What%20is%20a%20DNS%20A,210.9.) for each subdomain you wish to use (e.g. "hello" for `hello.mkr.house`) that points to the external IP address of your home network (you can use e.g. https://www.whatismyip.com/ to find this address). 
 
 Don't worry about the IP address changing; we'll set up Dynamic DNS in a bit.
 
 **Note:** We will reference `*.mkr.house` in the instructions below; this is our house domain. Substitute these with your own domain.
 
-## 1.1: Reverse-proxy with Traefik
+## 1.2: Reverse-proxy with Traefik
 
 We will use [Traefik](https://doc.traefik.io/traefik/) to reverse-proxy incoming requests. This lets us different services respond to different subdomains (`mqtt.mkr.house` and `registry.mkr.house`, for instance) without having to do lots of manual IP address mapping. This will require port forwarding to be set up as described in "Network Setup" above, or else you will not be able to route external traffic to your k3s services.
 
@@ -61,7 +64,7 @@ Generate the dashboard password:
 6. Test the configuration:
   * `kubectl apply -f ./core/default-ingress.yml`
   * `kubectl get ingress`
-    * You should see something like `hello   &lt;none>   i.mkr.house   192.168.0.2   80      2m2s`
+    * You should see something like `hello   &lt;none>   hello.mkr.house   192.168.0.2   80      2m2s`
 
 Note: Attempts to query `*.mkr.house` may internally lead to your router's admin page, unless something like [hairpin NAT](https://en.wikipedia.org/wiki/Hairpinning) is enabled. If this is the case, you'll need to use a mobile network or VPN to test external ingress properly, i.e. that with the lbtest.yaml and default-ingress.yml applied, a "Welcome to nginx!" page is displayed from outside the network.
 
@@ -69,11 +72,9 @@ Note: Attempts to query `*.mkr.house` may internally lead to your router's admin
 
 * You can use `journalctl -u k3s` to view k3s logs and look for errors.
 
-## 4.3: Setting up SSL certificate handling and dynamic DNS
+## 1.3: Setting up SSL certificate handling
 
-Now we will set up SSL certificate handling, so that we can serve HTTPS pages without browsers complaining about "risky business".
-
-Dynamic DNS will also be configured so that an external DNS provider (in our case, Hover) can direct web traffic to our cluster using a domain name. 
+Now we will set up SSL certificate handling, so that we can serve HTTPS pages without browsers complaining about "risky business". We will be using [cert-manager](https://cert-manager.io/docs/) which automatically handles certificate acquisitiona and renewal for any services we set up for external access (which is to say, any [Ingress](https://kubernetes.io/docs/concepts/services-networking/ingress/) objects we've set up).
 
 ### Certificate Management
 
@@ -90,18 +91,26 @@ Now we apply the cert manager:
 4. `kubectl apply -f cert-manager-arm.yaml`
 5. `kubectl --namespace cert-manager get pods`
 6. `kubectl apply -f letsencrypt-issuer-prod.yaml`
-7. `kubectl apply -f ingresstest.yaml` (TODO ingress test file)
-    * including "annotations" and "tls" sections described [here](https://opensource.com/article/20/3/ssl-letsencrypt-k3s), "request a certificate for our website"
+7. `kubectl apply -f core/lbtest.yaml`
+    * This contains an `Ingress` configuration which by default exposes on `hello.mkr.house`.
+    * The importint bits are the "annotations" and "tls" sections described [here](https://opensource.com/article/20/3/ssl-letsencrypt-k3s), "request a certificate for our website"
+8.  Wait a few minutes for cert-manager to request and get a certificate for this subdomain
 8. `kubectl get certificate`
-    * Should be "true", although this may take a couple seconds after init
-    * If not, check if `i.mkr.house` resolves to the current house IP. May have to update Hover manually for this portion.
+    * Should be "true"
+    * If not, check if `hello.mkr.house` resolves to the current house IP. You may have to update Hover manually for this portion until we've set up DDNS (below)
 9. `kubectl describe certificate`
     * Should say "Certificate issued successfully"
-10. Confirm behavior by going to [https://i.mkr.house](https://i.mkr.house) from external network and seeing the test page.
+10. Confirm behavior by going to [https://hello.mkr.house](https://hello.mkr.house) from external network and seeing the test page.
 
-## 3.1: Private Registry
+## 2: Customization for IoT and other uses
 
-A private registry hosts customized containers - such as our custom NodeRed installation with addons for handling Google Sheets, Google Assistant etc. We'll need to set this up before we go any further.
+Now that we have external access set up, we can 
+
+## 2.1: Private Registry
+
+A private registry hosts customized containers - such as our custom NodeRed installation with addons for handling Google Sheets, Google Assistant etc. We'll need to set this up before we go any further. 
+
+We wish to host our registry so it can be accessed externally (with authentication). This requires an "A" record `registry.mkr.house` (or equivalent) configured with your DNS provider (see above). You *can* forgo this and use the MetalLB IP address, but it's not intended to run without HTTPS and requires [additional hoop jumping](https://docs.docker.com/registry/insecure/) for it to work. Just use the subdomain; it's easier.
 
 This parallels the guide at [https://www.linuxtechi.com/setup-private-docker-registry-kubernetes/](https://www.linuxtechi.com/setup-private-docker-registry-kubernetes/) 
 
@@ -168,29 +177,24 @@ Let's copy it to the remaining nodes and reboot them:
 15. `sudo service k3s-agent restart`
 16. Repeat steps 11-15 for `k3s3`.
 
-### Dynamic DNS
 
-Dynamic DNS allows for a DNS provider to route web traffic to a IP address which changes over time (such as one provided for a residence by an ISP). Some providers have their own setup for DDNS which you can configure in your home router - others (including Hover) do not have a dedicated process and require a bit more setup.
+## 2.2: MQTT (NodeRed + Mosquitto)
 
-We use a custom container hosted on our private registry (configured above) to renew the dynamic DNS when our IP changes. To set this up:
+We use [MQTT](https://mqtt.org/) to pass messages to and from embedded IoT and other devices, and [Node-RED](https://nodered.org/) to set up automation flows based on those messages. 
 
-```
-cd .../makerhouse_network/dynamic_dns
+Let's build the nodered image to include some extra plugins not provided by the default one:
 
-# Build the container image and push it to the registry
-docker-compose build
-docker image push registry.mkr.house:443/ddns_lexicon:latest
+`cd ./nodered && docker build -t registry.mkr.house:443/nodered:latest && docker image push registry.mkr.house:443/nodered:latest`
 
-# Push credentials to k3s
-# (Replace the $VARs with your credentials for your DNS provider)
-./create_ddns_secrets.sh $DNS_USER $DNS_PASSWORD
+Both MQTT and NodeRed are included in the `mqtt.yaml` config. "mosquitto" is the specific MQTT broker we're installing.
 
-# Set up the k3s deployment
-# Note: you will need to edit the file if you want to manage different subdomains or have a different registry name
-kubectl apply -f ddns_lexicon.yaml
-```
+`kubectl apply -f mqtt.yaml -f configmap-mosquitto.yml`
 
-## 2.2: Prometheus monitoring & Grafana dashboarding
+To support Google Assistant commands, we'll need a JWT file. More details [on the plugin page](https://flows.nodered.org/node/node-red-contrib-google-smarthome) for how to acquire this file for your particular instance.
+
+`kubectl create secret generic nodered-jwt-key --from-file=/home/ubuntu/makerhouse/k3s/secretfile.json`
+
+## 2.3: Prometheus monitoring & Grafana dashboarding
 
 Now we'll set up [Prometheus](https://prometheus.io/) to collect metrics - including timeseries data we expose from IoT devices via NodeRed.
 
@@ -212,21 +216,27 @@ kubectl create secret generic additional-scrape-configs --from-file=prometheus-a
 kubectl apply -f additional-scrape-configs.yaml
 ```
 
-## 2.3: MQTT (NodeRed + Mosquitto)
+## 3: Dynamic DNS
 
-We use [MQTT](https://mqtt.org/) to pass messages to and from embedded IoT and other devices, and [Node-RED](https://nodered.org/) to set up automation flows based on those messages. 
+Dynamic DNS allows for a DNS provider to route web traffic to a IP address which changes over time (such as one provided for a residence by an ISP). Some providers have their own setup for DDNS which you can configure in your home router - others (including Hover) do not have a dedicated process and require a bit more setup.
 
-Let's build the nodered image to include some extra plugins not provided by the default one:
+We use a custom container hosted on our private registry (configured above) to renew the dynamic DNS when our IP changes. To set this up:
 
-`cd ./nodered && docker build -t registry.mkr.house:443/nodered:latest && docker image push registry.mkr.house:443/nodered:latest`
+```
+cd .../makerhouse_network/dynamic_dns
 
-Both MQTT and NodeRed are included in the `mqtt.yaml` config. "mosquitto" is the specific MQTT broker we're installing.
+# Build the container image and push it to the registry
+docker-compose build
+docker image push registry.mkr.house:443/ddns_lexicon:latest
 
-`kubectl apply -f mqtt.yaml -f configmap-mosquitto.yml`
+# Push credentials to k3s
+# (Replace the $VARs with your credentials for your DNS provider)
+./create_ddns_secrets.sh $DNS_USER $DNS_PASSWORD
 
-To support Google Assistant commands, we'll need a JWT file. More details [on the plugin page](https://flows.nodered.org/node/node-red-contrib-google-smarthome) for how to acquire this file for your particular instance.
-
-`kubectl create secret generic nodered-jwt-key --from-file=/home/ubuntu/makerhouse/k3s/secretfile.json`
+# Set up the k3s deployment
+# Note: you will need to edit the file if you want to manage different subdomains or have a different registry name
+kubectl apply -f ddns_lexicon.yaml
+```
 
 ## Next Steps
 

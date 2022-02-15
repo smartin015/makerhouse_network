@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello
+  labels:
+    app: hello
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: hello
+  template:
+    metadata:
+      labels:
+        app: hello
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.14.2
+          ports:
+            - containerPort: 80
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: hello
+  labels:
+    app: hello
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
+  selector:
+    app: hello
+  type: LoadBalancer
+  loadBalancerIP: 192.168.0.3
+  externalTrafficPolicy: Cluster
+---
+kind: Ingress
+apiVersion: extensions/v1beta1
+metadata:
+  name: hello
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  rules:
+    - host: ingress.mkr.house
+      http:
+        paths:
+          - backend:
+              serviceName: hello
+              servicePort: 80
+  tls:
+  - hosts:
+    - ingress.mkr.house
+    secretName: k3s-ingress-mkr-house-tls

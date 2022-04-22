@@ -11,7 +11,7 @@ Scripts, services, and configuration for running [MakerHouse](https://www.mkr.ho
 * monitoring, dashboarding, and alerting (Prometheus / Grafana)
 * custom container hosting (via private registry)
 
-For more high level details, see [this blog post](TODO TODO TODOOOOOO)
+For more high level details, see [this blog post](https://toddmedema.medium.com/makerhouses-overkill-network-setup-f0fe9435098d)
 
 ![MakerHouse Networking Diagram](https://user-images.githubusercontent.com/775657/150461044-72547ee2-321e-4d7c-a58f-0c0ba6e08656.png "https://docs.google.com/drawings/d/1UkQKlT5fA8L5bAdiAecp-bR1siNsGnlf4KK2kBhsDHk/edit")
 
@@ -204,7 +204,7 @@ kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.5/manife
 kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
 kubectl apply -f metallb-configmap.yml
 ```
-(TODO what's the user supposed to look at this file for?) See `./core/metallb-configmap.yml`
+See also `./core/metallb-configmap.yml` for details on what's being deployed.
 
 *Note: instructions say to do `kubectl edit configmap -n kube-system kube-proxy` but there's no such config map in k3s. This wasn't a problem for our installation.*
 

@@ -136,7 +136,7 @@ For a three node cluster, we'll have one "master" node named `k3s1` and two work
 SSH into the pi, and run the install script from get.k3s.io (see [install options](https://rancher.com/docs/k3s/latest/en/installation/install-options/) for more details):
 
 ```
-export INSTALL_K3S_VERSION=v1.19.7+k3s1
+export INSTALL_K3S_VERSION=v1.24.3+k3s1
 curl -sfL https://get.k3s.io | sh -s - --disable servicelb --disable local-storage
 ```
 
@@ -153,7 +153,7 @@ To install on worker nodes and add them to the cluster, run the installation scr
 
 ```
 export K3S_URL=https://<k3s1 IP address>:6443 
-export INSTALL_K3S_VERSION=v1.19.7+k3s1
+export INSTALL_K3S_VERSION=v1.24.3+k3s1
 export K3S_TOKEN=<token from k3s1>
 curl -sfL https://get.k3s.io | sh -
 ```

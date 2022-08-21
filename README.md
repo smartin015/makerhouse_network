@@ -199,14 +199,11 @@ We will be using [MetalLB](https://metallb.universe.tf/) to allow us to "publish
 Install MetalLB onto the cluster following [https://metallb.universe.tf/installation/](https://metallb.universe.tf/installation/):
 
 ```
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.5/manifests/namespace.yaml
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.5/manifests/metallb.yaml
-kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey="$(openssl rand -base64 128)"
-kubectl apply -f metallb-configmap.yml
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.4/config/manifests/metallb-native.yaml
+kubectl apply -f metallb-addresspool.yml
+kubectl apply -f metallb-l2advertisement.yml
 ```
-See also `./core/metallb-configmap.yml` for details on what's being deployed.
-
-*Note: instructions say to do `kubectl edit configmap -n kube-system kube-proxy` but there's no such config map in k3s. This wasn't a problem for our installation.*
+See the yml files in `core/` for details on what's being deployed.
 
 Test whether metallb is working by starting an exposed service, then cleaning up after:
 
@@ -249,11 +246,10 @@ _Note: this solution requires an arm64 architecture, NOT armhf/armv7l which is t
 Be sure to set Longhorn as the default storage class, so that service configs without an explicit `storageClass` specified can automatically use it:
 
 ```
-kubectl patch storageclass longhorn -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
+kubectl patch storageclass longhorn -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 ```
 
-The Longhorn UI is not available by default; you can expose it with [these instructions](https://longhorn.io/docs/1.0.0/deploy/accessing-the-ui/).
-
+Ensure longhorn is up and running by visiting the exposted IP address.
 
 # Next steps
 
